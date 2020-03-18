@@ -1,0 +1,34 @@
+#!/usr/bin/bash
+# Needs to run on headnode via cron.
+# Requires $pd_routing_key variable set to PD integration key, for Events API v2.
+
+zpool_error=$(/opt/smartdc/bin/sdc-oneachnode -aj "zpool status -xv"|json -ac 'result.stdout !== "all pools are healthy\n"')
+pd_routing_key='<integration_key>'
+
+if [ -f /.dcinfo ]; then
+    . /.dcinfo
+fi
+
+__pager_duty_payload () {
+    _date=$(date '+%FT%T.000%z')
+    cat << EOT
+{
+  "payload": {
+    "summary": "Failed disk in DC: ${SDC_DATACENTER_NAME}",
+    "timestamp": "$_date",
+    "source": "Triton headnode, DC: ${SDC_DATACENTER_NAME}",
+    "severity": "error",
+    "component": "triton",
+    "class": "storage"
+  },
+  "routing_key": "${pd_routing_key}",
+  "event_action": "trigger",
+  "client": "cron"
+}
+EOT
+}
+
+if [ ! -z "$zpool_error" ] ; then
+    _payload="$(__pager_duty_payload)"
+    curl -k https://events.pagerduty.com/v2/enqueue -d "$_payload"
+fi
